@@ -1,0 +1,660 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RCR IREC Ground Station</title>
+<style>
+  :root{
+    --bg:#0a0a0a; --panel:#141414; --panel2:#1c1c1c; --line:#2a2a2a; --text:#e8e8e8; --dim:#888;
+    --red:#AB0012; --red-glow:#AB001244; --red-light:#d4253c; --white:#ffffff; --dark:#000000;
+    --good:#4caf50; --warn:#ff9800; --bad:#f44336; --cyan:#78909c;
+    --mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, Consolas, monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px}
+  body{display:flex;flex-direction:column;overflow:hidden}
+
+  /* top bar */
+  header{display:flex;align-items:stretch;border-bottom:2px solid var(--red);background:var(--dark);flex:0 0 auto}
+  .brand{display:flex;align-items:center;gap:10px;padding:0 18px;font-weight:700;letter-spacing:.06em;border-right:1px solid var(--line);white-space:nowrap;color:var(--white)}
+  .brand .dot{width:10px;height:10px;border-radius:50%;background:var(--red);box-shadow:0 0 10px var(--red)}
+  nav{display:flex}
+  nav button{all:unset;cursor:pointer;padding:12px 24px;font-weight:600;letter-spacing:.08em;color:var(--dim);border-right:1px solid var(--line);position:relative;text-transform:uppercase;font-size:13px}
+  nav button:hover{color:var(--text);background:var(--panel)}
+  nav button.active{color:var(--white);background:var(--panel)}
+  nav button.active::after{content:"";position:absolute;left:0;right:0;bottom:-2px;height:2px;background:var(--red)}
+  nav kbd{font-family:var(--mono);font-size:10px;color:var(--dim);margin-left:6px;border:1px solid var(--line);border-radius:3px;padding:0 4px}
+  .status{margin-left:auto;display:flex;align-items:center;gap:16px;padding:0 16px;font-family:var(--mono);font-size:12px;color:var(--dim)}
+  .pill{display:flex;align-items:center;gap:6px}
+  .led{width:8px;height:8px;border-radius:50%;background:var(--bad)}
+  .led.ok{background:var(--good);box-shadow:0 0 6px var(--good)}
+  .led.warn{background:var(--warn)}
+  .clock{color:var(--white);font-size:13px}
+
+  /* main grid */
+  main{flex:1;display:grid;gap:10px;padding:10px;min-height:0;
+       grid-template-columns: minmax(0,1.15fr) minmax(0,1fr);
+       grid-template-rows: minmax(0,1.1fr) minmax(0,1fr);
+       grid-template-areas:"src vid" "tele vid";}
+  main.view-src{grid-template-columns:1fr;grid-template-rows:1fr;grid-template-areas:"src"}
+  main.view-tele{grid-template-columns:1fr;grid-template-rows:1fr;grid-template-areas:"tele"}
+  main.view-vid{grid-template-columns:1fr;grid-template-rows:1fr;grid-template-areas:"vid"}
+  main.view-src #tele, main.view-src #vid,
+  main.view-tele #src, main.view-tele #vid,
+  main.view-vid #src, main.view-vid #tele{display:none}
+
+  section.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;display:flex;flex-direction:column;min-height:0;min-width:0}
+  #src{grid-area:src} #tele{grid-area:tele} #vid{grid-area:vid}
+  .phead{display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid var(--line)}
+  .phead h2{margin:0;font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--red-light)}
+  .phead .sub{color:var(--dim);font-family:var(--mono);font-size:11px}
+  .phead .right{margin-left:auto;display:flex;gap:6px;align-items:center}
+  .pbody{flex:1;min-height:0;padding:10px;display:flex;flex-direction:column;gap:10px}
+
+  .btn{all:unset;cursor:pointer;font-size:11px;font-weight:600;letter-spacing:.05em;padding:5px 10px;border:1px solid var(--line);border-radius:4px;color:var(--text);background:var(--panel2)}
+  .btn:hover{border-color:var(--dim)}
+  .btn.on{border-color:var(--red);color:var(--red)}
+  .btn.danger{border-color:var(--bad);color:var(--bad)}
+  .btn.primary{background:var(--red);border-color:var(--red);color:var(--white)}
+  .btn.primary:hover{background:var(--red-light)}
+
+  /* receiver */
+  .graphs{flex:1;min-height:0;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .graph{position:relative;background:#050505;border:1px solid var(--line);border-radius:6px;min-height:0;display:flex;flex-direction:column}
+  .graph .gt{position:absolute;top:6px;left:8px;font-size:11px;color:var(--dim);font-family:var(--mono);pointer-events:none}
+  .graph .gv{position:absolute;top:6px;right:8px;font-size:11px;font-family:var(--mono);pointer-events:none}
+  .graph canvas{width:100%;height:100%;display:block}
+
+  /* telemetry */
+  .tgrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+  .stat{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:8px 10px}
+  .stat .k{font-size:10px;color:var(--dim);letter-spacing:.06em;text-transform:uppercase}
+  .stat .v{font-family:var(--mono);font-size:22px;font-weight:600;margin-top:2px;white-space:nowrap}
+  .stat .v small{font-size:12px;color:var(--dim);font-weight:400;margin-left:3px}
+  .stat.big{grid-column:span 2}
+  .stat.big .v{font-size:30px;color:var(--red)}
+  .phase{display:flex;gap:4px;flex-wrap:wrap}
+  .phase span{font-family:var(--mono);font-size:10px;padding:3px 6px;border-radius:3px;border:1px solid var(--line);color:var(--dim)}
+  .phase span.done{color:var(--text);border-color:#3a3a3a}
+  .phase span.now{color:var(--white);background:var(--red);border-color:var(--red)}
+  .tlow{flex:1;min-height:0;display:grid;grid-template-columns:1.4fr 1fr;gap:10px}
+  .log{background:#050505;border:1px solid var(--line);border-radius:6px;font-family:var(--mono);font-size:11px;overflow:auto;padding:6px 8px;color:var(--dim)}
+  .log div{white-space:nowrap}
+  .log b{color:var(--text);font-weight:500}
+
+  /* video */
+  .vwrap{flex:1;min-height:0;position:relative;background:#000;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+  .vwrap canvas,.vwrap img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain}
+  .osd{position:absolute;inset:0;pointer-events:none;font-family:var(--mono);font-size:13px;color:#fff;text-shadow:0 0 3px #000,0 0 6px #000}
+  .osd .tl{position:absolute;top:10px;left:12px}
+  .osd .tr{position:absolute;top:10px;right:12px;text-align:right}
+  .osd .bl{position:absolute;bottom:10px;left:12px}
+  .osd .br{position:absolute;bottom:10px;right:12px;text-align:right}
+  .rec{color:var(--bad);font-weight:700}
+  .vbar{display:flex;gap:8px;align-items:center}
+  .vbar input{flex:1;background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:4px;padding:5px 8px;font-family:var(--mono);font-size:12px}
+  .vstats{display:flex;gap:16px;font-family:var(--mono);font-size:11px;color:var(--dim)}
+  .vstats b{color:var(--text);font-weight:500}
+
+  /* settings drawer */
+  #settings{position:fixed;top:48px;right:10px;width:340px;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:14px;display:none;z-index:10;box-shadow:0 10px 40px #000a}
+  #settings.open{display:block}
+  #settings h3{margin:0 0 10px;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--red-light)}
+  #settings .row{display:flex;flex-direction:column;gap:4px;margin-bottom:10px}
+  #settings label{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em}
+  #settings input{background:var(--panel2);border:1px solid var(--line);color:var(--text);border-radius:4px;padding:6px;font-family:var(--mono);font-size:12px}
+  #settings p{font-size:11px;color:var(--dim);margin:6px 0 0;line-height:1.5}
+
+  @media (max-width:1000px){
+    main{grid-template-columns:1fr;grid-template-rows:auto;grid-template-areas:"src" "tele" "vid";overflow:auto}
+    section.panel{min-height:420px}
+    .tgrid{grid-template-columns:repeat(2,1fr)}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand"><span class="dot"></span>RCR&nbsp;GROUND&nbsp;STATION</div>
+  <nav id="tabs">
+    <button data-view="src">SRC<kbd>1</kbd></button>
+    <button data-view="tele">TELE<kbd>2</kbd></button>
+    <button data-view="vid">VID<kbd>3</kbd></button>
+    <button data-view="all" class="active">ALL<kbd>0</kbd></button>
+  </nav>
+  <div class="status">
+    <span class="pill"><span class="led" id="ledLink"></span><span id="linkTxt">LINK</span></span>
+    <span class="pill"><span class="led" id="ledRx"></span>RX</span>
+    <span class="pill"><span class="led" id="ledTlm"></span>TLM</span>
+    <span class="pill"><span class="led" id="ledVid"></span>VID</span>
+    <span class="clock" id="met">T+ 00:00.0</span>
+    <span id="utc">--:--:-- UTC</span>
+    <button class="btn" id="btnSettings">⚙</button>
+  </div>
+</header>
+
+<div id="settings">
+  <h3>Connection</h3>
+  <p style="color:var(--dim);font-size:12px;margin:0 0 8px;line-height:1.5">
+    All data stays on-device — no internet needed.<br>
+    Backend: <code style="color:var(--text)">ws://localhost:8765</code><br>
+    Video: <code style="color:var(--text)">http://localhost:8080/stream.mjpg</code>
+  </p>
+  <p style="font-size:11px;color:var(--dim);margin:6px 0 0;line-height:1.5">
+    Run <code style="color:var(--text)">python3 groundstation_server.py</code> on this Pi.
+    Open this page in Chromium at <code style="color:var(--text)">localhost:8000</code>.
+    Everything runs over localhost — no WiFi required.
+  </p>
+</div>
+
+<main id="main">
+  <!--src-->
+  <section class="panel" id="src">
+    <div class="phead">
+      <h2>Speed Receiver Controller</h2>
+      <span class="sub" id="rxSummary">AD9363 · 1250.000 MHz</span>
+      <div class="right">
+        <span class="sub" id="rxLock">NO LOCK</span>
+      </div>
+    </div>
+    <div class="pbody">
+      <div class="graphs">
+        <div class="graph">
+          <span class="gt">GRAPH 1 · SPECTRUM (dBFS)</span>
+          <span class="gv" id="g1v"></span>
+          <canvas id="g1"></canvas>
+        </div>
+        <div class="graph">
+          <span class="gt">GRAPH 2 · RSSI / SNR (dB)</span>
+          <span class="gv" id="g2v"></span>
+          <canvas id="g2"></canvas>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- telemetry-->
+  <section class="panel" id="tele">
+    <div class="phead">
+      <h2>Telemetry</h2>
+      <span class="sub" id="pktInfo">pkt 0 · 0 Hz</span>
+      <div class="right"><button class="btn on" id="btnLog">● LOG CSV</button></div>
+    </div>
+    <div class="pbody">
+      <div class="phase" id="phase">
+        <span class="now">PAD</span><span>BOOST</span><span>COAST</span><span>APOGEE</span><span>DROGUE</span><span>MAIN</span><span>LANDED</span>
+      </div>
+      <div class="tgrid">
+        <div class="stat big"><div class="k">Altitude (AGL)</div><div class="v" id="tAlt">0<small>ft</small></div></div>
+        <div class="stat"><div class="k">Velocity</div><div class="v" id="tVel">0<small>ft/s</small></div></div>
+        <div class="stat"><div class="k">Accel</div><div class="v" id="tAcc">0<small>g</small></div></div>
+        <div class="stat big"><div class="k">GPS</div><div class="v" id="tGps" style="font-size:18px">--.------, --.------</div></div>
+        <div class="stat"><div class="k">Max alt</div><div class="v" id="tMax">0<small>ft</small></div></div>
+        <div class="stat"><div class="k">Sats / Batt</div><div class="v" id="tSat">0<small>· 0.00 V</small></div></div>
+      </div>
+      <div class="tlow">
+        <div class="graph">
+          <span class="gt">ALTITUDE (ft) vs t</span>
+          <canvas id="g3"></canvas>
+        </div>
+        <div class="log" id="log">
+          <div><b>--:--:--</b> Waiting for telemetry...</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!--video -->
+  <section class="panel" id="vid">
+    <div class="phead">
+      <h2>Video</h2>
+      <span class="sub">1.2 GHz SRAD downlink</span>
+      <div class="right">
+        <button class="btn on" id="btnOsd">OSD</button>
+        <button class="btn" id="btnRec">● REC</button>
+        <button class="btn" id="btnFs">⛶</button>
+      </div>
+    </div>
+    <div class="pbody">
+      <div class="vwrap" id="vwrap">
+        <canvas id="vcan" width="1280" height="720"></canvas>
+        <img id="vimg" alt="" style="display:none">
+        <div class="osd" id="osd">
+          <div class="tl" id="osdTl">RCR · IREC<br><span id="osdState">PAD</span></div>
+          <div class="tr" id="osdTr">ALT 0 ft<br>VEL 0 ft/s</div>
+          <div class="bl" id="osdBl">T+ 00:00.0</div>
+          <div class="br" id="osdBr"><span class="rec" id="osdRec" style="display:none">● REC</span></div>
+        </div>
+      </div>
+      <div class="vbar">
+        <input id="vidUrl" value="http://localhost:8080/stream.mjpg" placeholder="MJPEG stream URL">
+        <button class="btn" id="btnVidConnect">LOAD</button>
+      </div>
+      <div class="vstats">
+        <span>FPS <b id="vFps">0</b></span>
+        <span>BITRATE <b id="vBr">0.0</b> Mb/s</span>
+        <span>DROPPED <b id="vDrop">0</b></span>
+        <span>RES <b id="vRes">1280×720</b></span>
+      </div>
+    </div>
+  </section>
+</main>
+
+<script>
+/* =====================================================================
+   RCR IREC Ground Station
+   Fully offline — all comms over localhost on the Pi.
+   Tabs: SRC / TELE / VID / ALL (keys 1/2/3/0)
+   Data: WebSocket ws://localhost:8765
+   Video: MJPEG http://localhost:8080/stream.mjpg
+   Fallback: built-in flight simulation when no backend is running.
+   ===================================================================== */
+
+const $ = id => document.getElementById(id);
+const RED = '#AB0012';
+
+/* tabs */
+const main = $('main');
+function setView(v){
+  main.className = v === 'all' ? '' : 'view-' + v;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.view === v));
+  requestAnimationFrame(resizeAll);
+}
+document.querySelectorAll('#tabs button').forEach(b => b.onclick = () => setView(b.dataset.view));
+document.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  const m = {'1':'src','2':'tele','3':'vid','0':'all'}[e.key];
+  if (m) setView(m);
+});
+
+/* state */
+const PHASES = ['PAD','BOOST','COAST','APOGEE','DROGUE','MAIN','LANDED'];
+const S = {
+  rx:{freq:1250.0,bw:5,gainMode:'slow_attack',gain:40,lock:false,rssi:-100,snr:0,spectrum:[]},
+  rxHist:[],
+  tlm:{alt:0,vel:0,acc:0,lat:null,lon:null,sats:0,batt:0,state:'PAD',t:0},
+  altHist:[], maxAlt:0, pkt:0, pktTimes:[],
+  vid:{fps:0,br:0,drop:0},
+  launchT:null, lastTlm:0, lastRx:0, lastVid:0,
+  logging:false, csv:[],
+  ws:null, sim:true, simT:0, simRaf:null
+};
+
+/* logging */
+function log(msg){
+  const d = document.createElement('div');
+  const t = new Date().toISOString().substr(11,8);
+  d.innerHTML = `<b>${t}</b> ${msg}`;
+  const L = $('log'); L.prepend(d);
+  while (L.children.length > 200) L.lastChild.remove();
+}
+
+/* canavas helpers */
+function fit(c){
+  const r = c.getBoundingClientRect(), dpr = window.devicePixelRatio || 1;
+  const w = Math.max(1, Math.round(r.width*dpr)), h = Math.max(1, Math.round(r.height*dpr));
+  if (c.width !== w || c.height !== h){ c.width = w; c.height = h; }
+  const g = c.getContext('2d'); g.setTransform(dpr,0,0,dpr,0,0);
+  return {g, w:r.width, h:r.height};
+}
+function resizeAll(){ ['g1','g2','g3'].forEach(id => fit($(id))); }
+window.addEventListener('resize', resizeAll);
+
+function grid(g,w,h,pad,ymin,ymax,ticks,fmt){
+  g.strokeStyle = '#1c1c1c'; g.fillStyle = '#666'; g.font = '10px ui-monospace,monospace'; g.lineWidth = 1;
+  for (let i=0;i<=ticks;i++){
+    const y = pad.t + (h-pad.t-pad.b)*i/ticks;
+    g.beginPath(); g.moveTo(pad.l,y); g.lineTo(w-pad.r,y); g.stroke();
+    g.fillText(fmt(ymax-(ymax-ymin)*i/ticks), 4, y+3);
+  }
+}
+function drawLine(g,pts,color,w=1.5){
+  g.strokeStyle = color; g.lineWidth = w; g.beginPath();
+  pts.forEach((p,i)=> i? g.lineTo(p[0],p[1]) : g.moveTo(p[0],p[1])); g.stroke();
+}
+
+/* graph1 */
+function drawSpectrum(){
+  const {g,w,h} = fit($('g1')); g.clearRect(0,0,w,h);
+  const pad={l:34,r:8,t:22,b:18}, ymin=-110, ymax=-10;
+  grid(g,w,h,pad,ymin,ymax,5,v=>v.toFixed(0));
+  const sp = S.rx.spectrum; if (!sp.length) return;
+  const X = i => pad.l + (w-pad.l-pad.r)*i/(sp.length-1);
+  const Y = v => pad.t + (h-pad.t-pad.b)*(ymax-Math.max(ymin,Math.min(ymax,v)))/(ymax-ymin);
+  const pts = sp.map((v,i)=>[X(i),Y(v)]);
+  g.fillStyle = RED+'1a'; g.beginPath(); g.moveTo(pad.l,h-pad.b);
+  pts.forEach(p=>g.lineTo(p[0],p[1])); g.lineTo(w-pad.r,h-pad.b); g.fill();
+  drawLine(g,pts,RED);
+  g.strokeStyle='#78909c44'; g.setLineDash([3,3]); g.beginPath();
+  g.moveTo(w/2+(pad.l-pad.r)/2,pad.t); g.lineTo(w/2+(pad.l-pad.r)/2,h-pad.b); g.stroke(); g.setLineDash([]);
+  g.fillStyle='#666';
+  const half = S.rx.bw/2;
+  g.fillText((S.rx.freq-half).toFixed(1), pad.l, h-4);
+  const ctr = S.rx.freq.toFixed(1); g.fillText(ctr, (w+pad.l-pad.r)/2 - g.measureText(ctr).width/2, h-4);
+  const hi=(S.rx.freq+half).toFixed(1); g.fillText(hi, w-pad.r-g.measureText(hi).width, h-4);
+  const peak = Math.max(...sp); $('g1v').textContent = `peak ${peak.toFixed(1)} dBFS`;
+}
+
+/* graph2 */
+function drawRxHist(){
+  const {g,w,h} = fit($('g2')); g.clearRect(0,0,w,h);
+  const pad={l:34,r:8,t:22,b:10}, ymin=-110, ymax=40;
+  grid(g,w,h,pad,ymin,ymax,5,v=>v.toFixed(0));
+  const H = S.rxHist; if (H.length<2) return;
+  const N = 300, X = i => pad.l + (w-pad.l-pad.r)*(i+(N-H.length))/(N-1);
+  const Y = v => pad.t + (h-pad.t-pad.b)*(ymax-Math.max(ymin,Math.min(ymax,v)))/(ymax-ymin);
+  drawLine(g,H.map((p,i)=>[X(i),Y(p.rssi)]),'#78909c');
+  drawLine(g,H.map((p,i)=>[X(i),Y(p.snr)]),'#4caf50');
+  const L = H[H.length-1];
+  $('g2v').innerHTML = `<span style="color:#78909c">RSSI ${L.rssi.toFixed(1)}</span> · <span style="color:#4caf50">SNR ${L.snr.toFixed(1)}</span>`;
+}
+
+/* grah 3 */
+function drawAlt(){
+  const {g,w,h} = fit($('g3')); g.clearRect(0,0,w,h);
+  const A = S.altHist; const pad={l:44,r:8,t:22,b:10};
+  const ymax = Math.max(1000, Math.ceil(S.maxAlt/1000)*1000+500);
+  grid(g,w,h,pad,0,ymax,4,v=>v.toFixed(0));
+  if (A.length<2) return;
+  const t0=A[0].t, t1=Math.max(A[A.length-1].t, t0+10);
+  const X = t => pad.l + (w-pad.l-pad.r)*(t-t0)/(t1-t0);
+  const Y = v => pad.t + (h-pad.t-pad.b)*(1-v/ymax);
+  drawLine(g,A.map(p=>[X(p.t),Y(p.alt)]),RED,2);
+}
+
+/* ui update */
+function renderPhase(){
+  const idx = PHASES.indexOf(S.tlm.state);
+  $('phase').innerHTML = PHASES.map((p,i)=>`<span class="${i<idx?'done':i===idx?'now':''}">${p}</span>`).join('');
+}
+renderPhase();
+
+function onTelemetry(m){
+  const prevState = S.tlm.state;
+  Object.assign(S.tlm, m);
+  S.pkt++; S.lastTlm = performance.now();
+  const now = performance.now(); S.pktTimes.push(now); while (S.pktTimes[0] < now-1000) S.pktTimes.shift();
+  if (S.tlm.alt > S.maxAlt) S.maxAlt = S.tlm.alt;
+  S.altHist.push({t:m.t ?? now/1000, alt:S.tlm.alt}); if (S.altHist.length>3000) S.altHist.shift();
+  if (S.tlm.state !== prevState){
+    log(`STATE → <b>${S.tlm.state}</b> @ ${Math.round(S.tlm.alt)} ft`); renderPhase();
+    if (S.tlm.state === 'BOOST' && S.launchT === null) S.launchT = performance.now();
+  }
+  $('tAlt').innerHTML = `${Math.round(S.tlm.alt).toLocaleString()}<small>ft</small>`;
+  $('tVel').innerHTML = `${Math.round(S.tlm.vel)}<small>ft/s</small>`;
+  $('tAcc').innerHTML = `${S.tlm.acc.toFixed(1)}<small>g</small>`;
+  $('tMax').innerHTML = `${Math.round(S.maxAlt).toLocaleString()}<small>ft</small>`;
+  $('tGps').textContent = S.tlm.lat==null ? 'NO FIX' : `${S.tlm.lat.toFixed(6)}, ${S.tlm.lon.toFixed(6)}`;
+  $('tSat').innerHTML = `${S.tlm.sats}<small>· ${S.tlm.batt.toFixed(2)} V</small>`;
+  $('pktInfo').textContent = `pkt ${S.pkt} · ${S.pktTimes.length} Hz`;
+  $('osdState').textContent = S.tlm.state;
+  $('osdTr').innerHTML = `ALT ${Math.round(S.tlm.alt)} ft<br>VEL ${Math.round(S.tlm.vel)} ft/s`;
+  if (S.logging) S.csv.push([new Date().toISOString(),S.tlm.state,S.tlm.alt,S.tlm.vel,S.tlm.acc,S.tlm.lat,S.tlm.lon,S.tlm.sats,S.tlm.batt].join(','));
+}
+
+function onRxStatus(m){
+  Object.assign(S.rx, m); S.lastRx = performance.now();
+  S.rxHist.push({rssi:m.rssi,snr:m.snr}); if (S.rxHist.length>300) S.rxHist.shift();
+  $('rxSummary').textContent = `AD9363 · ${m.freq.toFixed(3)} MHz`;
+  $('rxLock').textContent = m.lock ? 'LOCKED' : 'NO LOCK';
+  $('rxLock').style.color = m.lock ? '#4caf50' : '#888';
+}
+
+function onSpectrum(m){ S.rx.spectrum = m.bins; }
+
+function onVidStats(m){
+  S.vid = m; S.lastVid = performance.now();
+  $('vFps').textContent = m.fps;
+  $('vBr').textContent = (m.br/1e6).toFixed(1);
+  $('vDrop').textContent = m.drop;
+}
+
+/* status */
+function updateLeds(){
+  const now = performance.now();
+  const link = S.ws && S.ws.readyState === 1;
+  $('ledLink').className = 'led' + (link ? ' ok' : S.sim ? ' warn' : '');
+  $('linkTxt').textContent = link ? 'LIVE' : S.sim ? 'SIM' : 'OFFLINE';
+  $('ledRx').className  = 'led' + (now - S.lastRx  < 2000 ? ' ok' : '');
+  $('ledTlm').className = 'led' + (now - S.lastTlm < 2000 ? ' ok' : '');
+  $('ledVid').className = 'led' + (now - S.lastVid < 2000 ? ' ok' : '');
+}
+
+/* render*/
+function render(){
+  drawSpectrum(); drawRxHist(); drawAlt(); updateLeds();
+  // mission clock
+  if (S.launchT !== null){
+    const e = (performance.now() - S.launchT)/1000;
+    const m = Math.floor(e/60), s = (e%60).toFixed(1).padStart(4,'0');
+    const mt = `T+ ${String(m).padStart(2,'0')}:${s}`;
+    $('met').textContent = mt; $('osdBl').textContent = mt;
+  }
+  // utc
+  const d = new Date(); $('utc').textContent = d.toISOString().substr(11,8) + ' UTC';
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+
+/* websocket */
+function connect(){
+  const url = 'ws://localhost:8765';
+  log(`Connecting to <b>${url}</b>...`);
+  if (S.ws) try{ S.ws.close(); }catch(e){}
+  const ws = new WebSocket(url);
+  ws.onopen = () => {
+    S.ws = ws; S.sim = false; stopSim();
+    log('<b style="color:#4caf50">CONNECTED</b> — live data');
+  };
+  ws.onmessage = e => {
+    try{
+      const m = JSON.parse(e.data);
+      if (m.type === 'telemetry')   onTelemetry(m);
+      else if (m.type === 'rx_status')  onRxStatus(m);
+      else if (m.type === 'spectrum')   onSpectrum(m);
+      else if (m.type === 'video_stats') onVidStats(m);
+      else if (m.type === 'log')        log(m.msg);
+    }catch(err){}
+  };
+  ws.onclose = () => {
+    S.ws = null;
+    log('<b style="color:#f44336">DISCONNECTED</b>');
+    // auto-reconnect after 3s
+    setTimeout(() => { if (!S.ws) connect(); }, 3000);
+  };
+  ws.onerror = () => {
+    ws.close();
+  };
+}
+
+/* sims */
+function simFlight(t){
+  // launch at t=8s, 2.6s burn at ~14g, coast, apogee, drogue, main, landed
+  const G = 32.174; // ft/s²
+  const burnEnd = 8 + 2.6, thrust_a = 14*G;
+  let alt=0, vel=0, acc=0, state='PAD';
+  const lat0 = 31.0496, lon0 = -103.5463; // Spaceport America area
+  let lat = lat0, lon = lon0;
+
+  if (t < 8) {
+    state='PAD'; alt=0; vel=0; acc=0;
+  } else if (t < burnEnd) {
+    const bt = t - 8;
+    state='BOOST'; acc = thrust_a/G;
+    vel = thrust_a * bt;
+    alt = 0.5 * thrust_a * bt*bt;
+  } else {
+    const v_burnout = thrust_a * 2.6;
+    const alt_burnout = 0.5 * thrust_a * 2.6*2.6;
+    const ct = t - burnEnd;
+    vel = v_burnout - G*ct;
+    alt = alt_burnout + v_burnout*ct - 0.5*G*ct*ct;
+    acc = -1;
+
+    if (vel > 0) { state='COAST'; }
+    else {
+      const apogee_t = v_burnout / G;
+      const apogee_alt = alt_burnout + v_burnout*apogee_t - 0.5*G*apogee_t*apogee_t;
+      const dt = t - (burnEnd + apogee_t);
+
+      if (dt < 0.5) { state='APOGEE'; alt=apogee_alt; vel=0; acc=0; }
+      else {
+        // drogue descent ~90 ft/s until 1500 ft, then main ~20 ft/s
+        const drogue_v = 90;
+        const drogue_start_alt = apogee_alt;
+        const drogue_dt = dt - 0.5;
+        alt = drogue_start_alt - drogue_v * drogue_dt;
+        vel = -drogue_v; acc = 0;
+        state = 'DROGUE';
+
+        if (alt <= 1500) {
+          const main_v = 20;
+          const time_to_1500 = (drogue_start_alt - 1500) / drogue_v;
+          const main_dt = drogue_dt - time_to_1500;
+          if (main_dt > 0) {
+            alt = 1500 - main_v * main_dt;
+            vel = -main_v; state = 'MAIN';
+          }
+        }
+        if (alt <= 0) { alt=0; vel=0; acc=0; state='LANDED'; }
+      }
+    }
+    // GPS drift
+    lat = lat0 + (t-8)*0.000003;
+    lon = lon0 - (t-8)*0.000002;
+  }
+
+  return {
+    type:'telemetry', t, alt, vel, acc:acc, state, lat, lon,
+    sats: state==='PAD'? 12 : 10 + Math.floor(Math.random()*4),
+    batt: 3.95 - t*0.001 + Math.random()*0.02
+  };
+}
+
+function simRxTick(){
+  const locked = S.simT > 6;
+  const rssi = locked ? -55 + Math.random()*10 : -100 + Math.random()*5;
+  const snr = locked ? 18 + Math.random()*6 : 2 + Math.random()*3;
+  onRxStatus({freq:S.rx.freq, bw:S.rx.bw, rssi, snr, lock:locked});
+
+  const bins = [];
+  for (let i=0;i<128;i++){
+    const c = 64, d = Math.abs(i-c);
+    const base = locked ? -50 - d*0.6 + Math.random()*4 : -90 + Math.random()*6;
+    bins.push(base);
+  }
+  onSpectrum({bins});
+}
+
+let simInterval = null;
+function startSim(){
+  S.sim = true; S.simT = 0;
+  log('Simulation started — press ⚙ for info');
+  simInterval = setInterval(() => {
+    S.simT += 0.1;
+    onTelemetry(simFlight(S.simT));
+    simRxTick();
+    onVidStats({fps:30, br:2400000, drop:0});
+  }, 100);
+}
+function stopSim(){
+  if (simInterval) { clearInterval(simInterval); simInterval = null; }
+}
+
+/* settings */
+$('btnSettings').onclick = () => $('settings').classList.toggle('open');
+
+/* csv */
+$('btnLog').onclick = () => {
+  if (!S.logging){
+    S.logging = true; S.csv = ['time,state,alt,vel,acc,lat,lon,sats,batt'];
+    $('btnLog').classList.add('danger'); $('btnLog').textContent = '■ STOP LOG';
+    log('CSV logging <b>started</b>');
+  } else {
+    S.logging = false;
+    $('btnLog').classList.remove('danger'); $('btnLog').textContent = '● LOG CSV';
+    log(`CSV logging <b>stopped</b> — ${S.csv.length-1} rows`);
+    try{
+      const blob = new Blob([S.csv.join('\n')], {type:'text/csv'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob); a.download = `rcr-telemetry-${Date.now()}.csv`;
+      a.click(); URL.revokeObjectURL(a.href);
+      log('CSV file downloaded');
+    }catch(e){ log('CSV download failed — copy from console'); console.log(S.csv.join('\n')); }
+  }
+};
+
+/* vid */
+function drawTestPattern(){
+  const c = $('vcan'), g = c.getContext('2d');
+  const W = 1280, H = 720;
+  const bars = [RED,'#ffffff','#000000',RED,'#333','#666','#999'];
+  const bw = W / bars.length;
+  bars.forEach((col,i) => { g.fillStyle = col; g.fillRect(i*bw,0,bw,H); });
+  g.fillStyle = RED; g.fillRect(W/2-200, H/2-30, 400, 60);
+  g.fillStyle = '#fff'; g.font = 'bold 28px system-ui'; g.textAlign = 'center'; g.textBaseline = 'middle';
+  g.fillText('RCR · NO VIDEO SIGNAL', W/2, H/2);
+}
+drawTestPattern();
+
+$('btnVidConnect').onclick = () => {
+  const url = $('vidUrl').value.trim(); if (!url) return;
+  $('vimg').src = url; $('vimg').style.display = 'block';
+  $('vcan').style.display = 'none';
+  log(`Video stream: <b>${url}</b>`);
+};
+
+let osdOn = true;
+$('btnOsd').onclick = () => { osdOn = !osdOn; $('osd').style.display = osdOn ? '' : 'none'; $('btnOsd').classList.toggle('on', osdOn); };
+
+let recording = false;
+$('btnRec').onclick = () => {
+  recording = !recording;
+  $('btnRec').classList.toggle('danger', recording);
+  $('osdRec').style.display = recording ? '' : 'none';
+  if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify({type:'video_record', on:recording}));
+  log(recording ? 'Recording <b>started</b>' : 'Recording <b>stopped</b>');
+};
+
+$('btnFs').onclick = () => {
+  try{ $('vwrap').requestFullscreen(); }catch(e){}
+};
+
+/* boot */
+log('RCR Ground Station booting...');
+try {
+  const ws = new WebSocket('ws://localhost:8765');
+  ws.onopen = () => {
+    S.ws = ws; S.sim = false;
+    log('<b style="color:#4caf50">CONNECTED</b> to localhost:8765');
+    ws.onmessage = e => {
+      try{
+        const m = JSON.parse(e.data);
+        if (m.type === 'telemetry')      onTelemetry(m);
+        else if (m.type === 'rx_status') onRxStatus(m);
+        else if (m.type === 'spectrum')  onSpectrum(m);
+        else if (m.type === 'video_stats') onVidStats(m);
+        else if (m.type === 'log')       log(m.msg);
+      }catch(err){}
+    };
+    ws.onclose = () => {
+      S.ws = null;
+      log('<b style="color:#f44336">DISCONNECTED</b> — reconnecting in 3s');
+      setTimeout(connect, 3000);
+    };
+    ws.onerror = () => ws.close();
+  };
+  ws.onerror = () => {
+    log('No backend found — starting <b>simulation</b>');
+    startSim();
+  };
+} catch(e) {
+  log('No backend found — starting <b>simulation</b>');
+  startSim();
+}
+
+</script>
+
+</body>
+</html>
